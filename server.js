@@ -1,19 +1,26 @@
 const express = require('express');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
+const cors = require('cors');
 const app = express();
+
+app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
-
-// Ganti dengan API kamu sendiri ya
-const API_KEY = 'bg_ea757446453d07d472f6e537b362d9f9';
-const SECRET_KEY = '6f99c4d12fe2d2a57b96b22a25ac3a4cd97eb3cf5393c4c112da9a9f659ade52';
-const PASSPHRASE = 'Barokah99';
 
 let gridActive = false;
 let lastBuyPrice = null;
 const gridPercent = 1.2;
 const intervalMs = 10000;
+
+function getTimestamp() {
+  return Date.now().toString();
+}
+
+function signRequest(timestamp, method, endpoint, body, secretKey) {
+  const preSign = timestamp + method.toUpperCase() + endpoint + body;
+  return crypto.createHmac('sha256', secretKey).update(preSign).digest('hex');
+}
 
 async function getPrice() {
   const res = await fetch('https://api.bitget.com/api/spot/v1/market/ticker?symbol=BTCUSDT_SPBL');
@@ -21,16 +28,7 @@ async function getPrice() {
   return parseFloat(data.data.close);
 }
 
-function getTimestamp() {
-  return Date.now().toString();
-}
-
-function signRequest(timestamp, method, endpoint, body = '') {
-  const preSign = timestamp + method.toUpperCase() + endpoint + body;
-  return crypto.createHmac('sha256', SECRET_KEY).update(preSign).digest('hex');
-}
-
-async function placeOrder(side, amount) {
+async function placeOrder(side, amount, apiKey, secretKey, passphrase) {
   const endpoint = '/api/spot/v1/trade/orders';
   const timestamp = getTimestamp();
   const body = JSON.stringify({
@@ -40,12 +38,12 @@ async function placeOrder(side, amount) {
     size: amount.toString()
   });
 
-  const sign = signRequest(timestamp, 'POST', endpoint, body);
+  const sign = signRequest(timestamp, 'POST', endpoint, body, secretKey);
   const headers = {
-    'ACCESS-KEY': API_KEY,
+    'ACCESS-KEY': apiKey,
     'ACCESS-SIGN': sign,
     'ACCESS-TIMESTAMP': timestamp,
-    'ACCESS-PASSPHRASE': PASSPHRASE,
+    'ACCESS-PASSPHRASE': passphrase,
     'Content-Type': 'application/json'
   };
 
@@ -55,20 +53,19 @@ async function placeOrder(side, amount) {
     body
   });
 
-  const result = await res.json();
-  return result;
+  return await res.json();
 }
 
-async function getBalanceFromBitget() {
+async function getBalanceFromBitget(apiKey, secretKey, passphrase) {
   const timestamp = getTimestamp();
   const endpoint = '/api/spot/v1/account/assets';
-  const sign = signRequest(timestamp, 'GET', endpoint);
+  const sign = signRequest(timestamp, 'GET', endpoint, '', secretKey);
 
   const headers = {
-    'ACCESS-KEY': API_KEY,
+    'ACCESS-KEY': apiKey,
     'ACCESS-SIGN': sign,
     'ACCESS-TIMESTAMP': timestamp,
-    'ACCESS-PASSPHRASE': PASSPHRASE
+    'ACCESS-PASSPHRASE': passphrase
   };
 
   const response = await fetch('https://api.bitget.com' + endpoint, {
@@ -76,11 +73,10 @@ async function getBalanceFromBitget() {
     headers
   });
 
-  const result = await response.json();
-  return result;
+  return await response.json();
 }
 
-async function runGrid(danaAwal) {
+async function runGrid(danaAwal, apiKey, secretKey, passphrase) {
   const usdtPerTrade = danaAwal / 5;
   console.log('Infinity Grid Spot dimulai...');
   lastBuyPrice = null;
@@ -92,7 +88,7 @@ async function runGrid(danaAwal) {
 
       if (!lastBuyPrice) {
         console.log('Melakukan pembelian pertama...');
-        const res = await placeOrder('buy', (usdtPerTrade / harga).toFixed(6));
+        const res = await placeOrder('buy', (usdtPerTrade / harga).toFixed(6), apiKey, secretKey, passphrase);
         console.log('Order beli:', res);
         lastBuyPrice = harga;
       } else {
@@ -101,12 +97,12 @@ async function runGrid(danaAwal) {
 
         if (harga <= targetBuy) {
           console.log('Harga turun, beli lagi');
-          const res = await placeOrder('buy', (usdtPerTrade / harga).toFixed(6));
+          const res = await placeOrder('buy', (usdtPerTrade / harga).toFixed(6), apiKey, secretKey, passphrase);
           console.log('Order beli:', res);
           lastBuyPrice = harga;
         } else if (harga >= targetSell) {
           console.log('Harga naik, jual sebagian');
-          const res = await placeOrder('sell', (usdtPerTrade / harga).toFixed(6));
+          const res = await placeOrder('sell', (usdtPerTrade / harga).toFixed(6), apiKey, secretKey, passphrase);
           console.log('Order jual:', res);
           lastBuyPrice = harga;
         } else {
@@ -122,26 +118,38 @@ async function runGrid(danaAwal) {
   console.log('Grid spot dihentikan.');
 }
 
+// Start Grid
 app.post('/start-grid', (req, res) => {
-  const { dana } = req.body;
+  const { apiKey, apiSecret, passphrase, dana } = req.body;
+  if (!apiKey || !apiSecret || !passphrase || !dana) {
+    return res.status(400).json({ error: 'Lengkapi semua data: API key, secret, passphrase, dana' });
+  }
+
   if (gridActive) return res.json({ status: 'Bot sudah aktif' });
 
   gridActive = true;
-  runGrid(dana);
+  runGrid(dana, apiKey, apiSecret, passphrase);
   res.json({ status: 'Infinity Grid Spot dimulai', dana });
 });
 
+// Stop Grid
 app.post('/stop-grid', (req, res) => {
   gridActive = false;
   res.json({ status: 'Bot dihentikan' });
 });
 
-app.get('/get-balance', async (req, res) => {
+// Get Balance
+app.post('/get-balance', async (req, res) => {
+  const { apiKey, apiSecret, passphrase } = req.body;
+  if (!apiKey || !apiSecret || !passphrase) {
+    return res.status(400).json({ code: 1, msg: 'API credentials missing' });
+  }
+
   try {
-    const result = await getBalanceFromBitget();
-    res.json(result);
+    const result = await getBalanceFromBitget(apiKey, apiSecret, passphrase);
+    res.json({ code: 0, data: result.data });
   } catch (e) {
-    res.status(500).json({ error: 'Gagal ambil saldo', message: e.message });
+    res.status(500).json({ code: 2, msg: e.message });
   }
 });
 
