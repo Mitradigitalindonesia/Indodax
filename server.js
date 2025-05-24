@@ -1,8 +1,11 @@
 const express = require('express');
+const cors = require('cors');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
+
 const app = express();
 
+app.use(cors());
 app.use(express.json());
 
 app.post('/check-balance', async (req, res) => {
@@ -16,6 +19,7 @@ app.post('/check-balance', async (req, res) => {
   const method = 'GET';
   const requestPath = '/api/v1/account/assets';
   const prehash = timestamp + method + requestPath;
+
   const sign = crypto.createHmac('sha256', apiSecret)
                      .update(prehash)
                      .digest('base64');
@@ -34,8 +38,9 @@ app.post('/check-balance', async (req, res) => {
 
     const data = await response.json();
     res.status(200).json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
