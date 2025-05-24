@@ -6,33 +6,38 @@ const app = express();
 app.use(express.json());
 
 app.post('/check-balance', async (req, res) => {
-  const { apiKey, secretKey } = req.body;
+  const { apiKey, apiSecret, passphrase } = req.body;
 
-  if (!apiKey || !secretKey) {
-    return res.status(400).json({ error: 'Missing API keys' });
+  if (!apiKey || !apiSecret || !passphrase) {
+    return res.status(400).json({ error: 'Missing API credentials' });
   }
 
-  const nonce = Date.now().toString();
-  const params = new URLSearchParams({ method: 'getInfo', nonce });
-  const sign = crypto.createHmac('sha512', secretKey).update(params.toString()).digest('hex');
+  const timestamp = new Date().toISOString();
+  const method = 'GET';
+  const requestPath = '/api/v1/account/assets';
+  const prehash = timestamp + method + requestPath;
+  const sign = crypto.createHmac('sha256', apiSecret)
+                     .update(prehash)
+                     .digest('base64');
 
   try {
-    const response = await fetch('https://indodax.com/tapi', {
-      method: 'POST',
+    const response = await fetch('https://api.bitget.com' + requestPath, {
+      method,
       headers: {
-        Key: apiKey,
-        Sign: sign,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: params
+        'ACCESS-KEY': apiKey,
+        'ACCESS-SIGN': sign,
+        'ACCESS-TIMESTAMP': timestamp,
+        'ACCESS-PASSPHRASE': passphrase,
+        'Content-Type': 'application/json'
+      }
     });
 
     const data = await response.json();
-    res.json(data);
+    res.status(200).json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server running on port ${port}`));
+app.listen(port, () => console.log(`Bitget API server running on port ${port}`));
