@@ -8,6 +8,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.get('/', (req, res) => {
+  res.send('Bitget Balance API is running');
+});
+
 app.post('/check-balance', async (req, res) => {
   const { apiKey, apiSecret, passphrase } = req.body;
 
@@ -17,8 +21,9 @@ app.post('/check-balance', async (req, res) => {
 
   const timestamp = new Date().toISOString();
   const method = 'GET';
-const requestPath = '/api/spot/v1/account/assets';
-const prehash = timestamp + method + requestPath;
+  const requestPath = '/api/spot/v1/account/assets';
+  const prehash = timestamp + method + requestPath;
+
   const sign = crypto.createHmac('sha256', apiSecret)
                      .update(prehash)
                      .digest('base64');
