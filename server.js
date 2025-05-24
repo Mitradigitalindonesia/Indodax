@@ -17,9 +17,8 @@ app.post('/check-balance', async (req, res) => {
 
   const timestamp = new Date().toISOString();
   const method = 'GET';
-  const requestPath = '/api/v1/account/assets';
-  const prehash = timestamp + method + requestPath;
-
+const requestPath = '/api/spot/v1/account/assets';
+const prehash = timestamp + method + requestPath;
   const sign = crypto.createHmac('sha256', apiSecret)
                      .update(prehash)
                      .digest('base64');
